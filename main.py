@@ -2,12 +2,14 @@ from __future__ import print_function
 import theano,time,numpy as np,sys,h5py,cPickle,argparse,subprocess
 from hyperopt import Trials, STATUS_OK, tpe
 from hyperas import optim
-from os.path import join,dirname,basename,exists
+from os.path import join,dirname,basename,exists,realpath
 from os import system,chdir,getcwd,makedirs
 from keras.models import model_from_json
 from tempfile import mkdtemp
 from keras.callbacks import ModelCheckpoint
 from sklearn.metrics import accuracy_score,roc_auc_score
+
+cwd = dirname(realpath(__file__))
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Launch a list of commands on EC2.")
@@ -27,11 +29,23 @@ def parse_args():
     parser.add_argument("-bs", "--batchsize",default=100,type=int,help="")
     return parser.parse_args()
 
+def probedata(dataprefix):
+    allfiles = subprocess.check_output('ls '+dataprefix+'*', shell=True).split('\n')[:-1]
+    cnt = 0
+    samplecnt = 0
+    for x in allfiles:
+        if  x.split(dataprefix)[1].isdigit():
+            cnt += 1
+            data = h5py.File(x,'r')
+            samplecnt += len(data['label'])
+    return (cnt,samplecnt)
+
 if __name__ == "__main__":
 
     args = parse_args()
     topdir = args.topdir
     model_arch = basename(args.model)
+    model_arch = model_arch[:-3] if model_arch[-3:] == '.py' else model_arch
     data_code = args.datacode
 
     outdir = join(topdir,model_arch)
@@ -44,7 +58,8 @@ if __name__ == "__main__":
     data1prefix = join(topdir,data_code+args.prefix)
     evalout = join(outdir,model_arch+'_eval.txt')
 
-    with open(args.model+'.template') as f,open('mymodel.py','w') as fout:
+    tmpdir = mkdtemp()
+    with open(args.model) as f,open(join(tmpdir,'mymodel.py'),'w') as fout:
         for x in f:
             newline = x.replace('DATACODE',data_code)
             newline = newline.replace('TOPDIR',topdir)
@@ -53,6 +68,7 @@ if __name__ == "__main__":
             newline = newline.replace('PREFIX',args.prefix)
             fout.write(newline)
 
+    sys.path.append(tmpdir)
     from mymodel import *
     import mymodel
 
@@ -70,10 +86,8 @@ if __name__ == "__main__":
         model.compile(loss=best_lossfunc, optimizer=best_optim,metrics=['accuracy'])
 
         checkpointer = ModelCheckpoint(filepath=weight_file, verbose=1, save_best_only=True)
-        train_size = int(subprocess.check_output('wc '+join(topdir,data_code)+'.target*train', shell=True).split()[0])
-        valid_size = int(subprocess.check_output('wc '+join(topdir,data_code)+'.target*valid', shell=True).split()[0])
-        trainbatch_num = int(subprocess.check_output('ls '+data1prefix+'.train.h5.batch* | wc -l', shell=True).split()[0])
-        validbatch_num = int(subprocess.check_output('ls '+data1prefix+'.valid.h5.batch* | wc -l', shell=True).split()[0])
+        trainbatch_num,train_size = probedata(data1prefix+'.train.h5.batch')
+        validbatch_num,valid_size = probedata(data1prefix+'.valid.h5.batch')
         history_callback = model.fit_generator(mymodel.BatchGenerator2(args.batchsize,trainbatch_num,'train',topdir,data_code)\
         		    ,train_size,args.trainepoch,validation_data=mymodel.BatchGenerator2(args.batchsize,validbatch_num,'valid',topdir,data_code)\
         			    ,nb_val_samples=valid_size,callbacks = [checkpointer])
@@ -129,3 +143,4 @@ if __name__ == "__main__":
                 for x in pred:
                     f.write('%f\n' % x[0])
 
+    system('rm -r ' + tmpdir)
