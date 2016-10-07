@@ -8,6 +8,7 @@ from keras.models import model_from_json
 from tempfile import mkdtemp
 from keras.callbacks import ModelCheckpoint
 from sklearn.metrics import accuracy_score,roc_auc_score
+from mydense import MyDense
 
 cwd = dirname(realpath(__file__))
 
@@ -22,7 +23,7 @@ def parse_args():
     parser.add_argument("-s", "--datasize", dest="datasize",help="")
     parser.add_argument("-c", "--datacode", dest="datacode",default='data',help="")
     parser.add_argument("-m", "--model", dest="model",help="")
-    parser.add_argument("-o", "--outfile", dest="outfile",default='',help="")
+    parser.add_argument("-o", "--outdir", dest="outdir",default='',help="")
     parser.add_argument("-x", "--prefix", dest="prefix",default='',help="")
     parser.add_argument("-hi", "--hyperiter", dest="hyperiter",default=9,type=int,help="")
     parser.add_argument("-te", "--trainepoch",default=20,type=int,help="")
@@ -81,7 +82,7 @@ if __name__ == "__main__":
 
     if args.train:
         ### Training
-        model = model_from_json(open(architecture_file).read())
+        model = model_from_json(open(architecture_file).read(),{'MyDense': MyDense})
         best_optim,best_lossfunc = cPickle.load(open(optimizer_file,'rb'))
         model.compile(loss=best_lossfunc, optimizer=best_optim,metrics=['accuracy'])
 
@@ -119,28 +120,34 @@ if __name__ == "__main__":
 
     if args.predict:
         ## Predict on new data
-        model = model_from_json(open(architecture_file).read())
+        model = model_from_json(open(architecture_file).read(),{'MyDense':MyDense})
         model.load_weights(weight_file)
         best_optim = cPickle.load(open(optimizer_file,'rb'))
         model.compile(loss='binary_crossentropy', optimizer=best_optim,metrics=['accuracy'])
 
-        predict_batch_num = int(subprocess.check_output('ls '+args.infile+'* | wc -l', shell=True).split()[0])
+        predict_batch_num = len([ 1  for x in subprocess.check_output('ls '+args.infile+'*', shell=True).split('\n')[:-1] if args.infile in x  if x.split(args.infile)[1].isdigit()])
         print('Total number of batch to predict:',predict_batch_num)
 
-        outfile = join(dirname(args.infile),'pred.'+basename(args.infile)) if args.outfile == '' else args.outfile
-        if not exists(dirname(outfile)):
-            makedirs(dirname(outfile))
+        outdir = join(dirname(args.infile),'.'.join(['pred',model_arch,basename(args.infile)])) if args.outdir == '' else args.outdir
+        if exists(outdir):
+            print 'Output directory',outdir,'exists! Overwrite? (yes/no)'
+            if raw_input().lower() == 'yes':
+                system('rm -r ' + outdir)
+            else:
+                print 'Quit predicting!'
+                sys.exit(1)
+        for i in range(predict_batch_num):
+            print(i)
+            data1 = h5py.File(args.infile+str(i+1),'r')['data']
+            time1 = time.time()
+            pred = model.predict(data1,batch_size=1280)
+            time2 = time.time()
+            print('predict took %0.3f ms' % ((time2-time1)*1000.0))
 
-        with open(outfile,'w') as f:
-            for i in range(predict_batch_num):
-                print(i)
-                data1f = h5py.File(args.infile+str(i+1),'r')
-                data1 = data1f['data']
-                time1 = time.time()
-                pred = model.predict(data1,batch_size=1280)
-                time2 = time.time()
-                print('predict took %0.3f ms' % ((time2-time1)*1000.0))
-                for x in pred:
-                    f.write('%f\n' % x[0])
+            t_outdir = join(outdir,'batch'+str(i+1))
+            makedirs(t_outdir)
+            for label_dim in range(pred.shape[1]):
+                with open(join(t_outdir,str(label_dim)+'.pkl'),'wb') as f:
+                    cPickle.dump(pred[:,label_dim],f)
 
     system('rm -r ' + tmpdir)
