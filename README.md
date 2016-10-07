@@ -29,7 +29,7 @@ python $REPO_HOME/embedH5.py tmp.tsv TARGET_FILE DATA_TOPDIR/DATA_CODE.SET_NAME.
 + `FASTA_FILE`: sequence in FASTA format 
 + `TARGET_FILE`: targets (labels or real values) corresponding to the sequences (in the same order)
 + `DATA_TOPDIR`: the *absolute path* of the output directory 
-+ `DATA_CODE`: the prefix of all the output HDF5 files
++ `DATA_CODE`: a customized prefix to put at the begining of all the output HDF5 files
 + `SET_NAME`: 'train','valid',or 'test' for corresponding dataset. The main code below will search for training, validation and test data by this naming convention.
 + `BATCHSIZE`: optional and the default is 5000. Save every this number of samples to a separate file `DATA_CODE.h5.batchX` where X is the corresponding batch index.
 
@@ -52,16 +52,25 @@ docker run --rm --device /dev/nvidiactl --device /dev/nvidia-uvm MOREDEVICE \
 + `DATA_TOPDIR`: same as above
 + `DATA_CODE`: same as above
 + `SEQ_SIZE`: the length of the genomic sequences
-+ `ORDER`: actions to take. *Multiple ones can be used and they will be executed in order*.
-	+ `-y`: hyper-parameter tuning. Use `-hi` to change the number of hyper-parameter combinations to try (default:9)
-	+ `-t`: train. Use `-te` to change the number of epochs to train for, and `-bs` to change the size of minibatch.
++ `ORDER`: 
+	
+	actions to take. *Multiple ones can be used and they will be executed in order*.
+	+ `-y`: hyper-parameter tuning. 
+		
+		Use `-hi` to customize the number of hyper-parameter combinations to try (default:9)
+	+ `-t`: train on the training set. 
+	
+		Use `-te` to customize the number of epochs to train for (default 20), and `-bs` to change the size of minibatch (default 100).
 	+ `-e`: evaluate the model on the test set.
-	+ `-p`: predict on new data.The path of data (up till the batch number) to predict must follow.  By default the prediction will be output to 'pred.MODELNAME.DATAFILE'. Use `-i` to customize the output directory (default /DATADIR/pred.MODELNAME.DATAFILENAME)
+	+ `-p`: predict on new data.
+	
+		The path of data (up till the batch number) to predict must follow. Use `-o` to customize the output directory (default value see examples below). Predictions for every batch will be saved to a separate subdirectory and split into different [pickle](https://wiki.python.org/moin/UsingPickle) files by label.
+		
 		Example: 
-		to predict on some sequence data prepared at `/my_folder/mydata.batchX`, where X is 1,2,3. By default the output will be `/my_folder/pred.mymodel.mydata.batch`
+		
+		to predict on some sequence data prepared at `/my_folder/mydata.batchX`, where X is 1,2,3,etc. By default the output directory will be `/my_folder/pred.mymodel.mydata.batch`
 		```
-			-p /my_folder/mydata.batch
-			
+			-p /my_folder/mydata.batch	
 		```
 		To save the prediction to a customized path `/my_output_folder`:
 		```
