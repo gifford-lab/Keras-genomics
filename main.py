@@ -14,20 +14,19 @@ cwd = dirname(realpath(__file__))
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Launch a list of commands on EC2.")
-    parser.add_argument("-y", "--hyper", dest="hyper", default=False, action='store_true',help="")
-    parser.add_argument("-t", "--train", dest="train", default=False, action='store_true',help="")
-    parser.add_argument("-e", "--eval", dest="eval", default=False, action='store_true',help="")
-    parser.add_argument("-p", "--predit", dest="predict", default=False, action='store_true',help="")
-    parser.add_argument("-i", "--infile", dest="infile", default='',help="")
-    parser.add_argument("-d", "--topdir", dest="topdir",help="")
-    parser.add_argument("-s", "--datasize", dest="datasize",help="")
-    parser.add_argument("-c", "--datacode", dest="datacode",default='data',help="")
-    parser.add_argument("-m", "--model", dest="model",help="")
-    parser.add_argument("-o", "--outdir", dest="outdir",default='',help="")
-    parser.add_argument("-x", "--prefix", dest="prefix",default='',help="")
-    parser.add_argument("-hi", "--hyperiter", dest="hyperiter",default=9,type=int,help="")
-    parser.add_argument("-te", "--trainepoch",default=20,type=int,help="")
-    parser.add_argument("-bs", "--batchsize",default=100,type=int,help="")
+    parser.add_argument("-y", "--hyper", dest="hyper", default=False, action='store_true',help="Perform hyper-parameter tuning")
+    parser.add_argument("-t", "--train", dest="train", default=False, action='store_true',help="Train on the training set with the best hyper-params")
+    parser.add_argument("-e", "--eval", dest="eval", default=False, action='store_true',help="Evaluate the model on the test set")
+    parser.add_argument("-p", "--predit", dest="infile", default='', help="Path to data to predict on (up till batch number)")
+    parser.add_argument("-d", "--topdir", dest="topdir",help="The data directory")
+    parser.add_argument("-s", "--datasize", dest="datasize",help="The length of input sequence")
+    parser.add_argument("-c", "--datacode", dest="datacode",default='data',help="The prefix of each data file")
+    parser.add_argument("-m", "--model", dest="model",help="Path to the model file")
+    parser.add_argument("-o", "--outdir", dest="outdir",default='',help="Output directory for the prediction on new data")
+    parser.add_argument("-x", "--prefix", dest="prefix",default='',help="Additional prefix appended after datacode")
+    parser.add_argument("-hi", "--hyperiter", dest="hyperiter",default=9,type=int,help="Num of hyper-param combination to try")
+    parser.add_argument("-te", "--trainepoch",default=20,type=int,help="The number of epochs to train for")
+    parser.add_argument("-bs", "--batchsize",default=100,type=int,help="Batchsize in SGD-based training")
     return parser.parse_args()
 
 def probedata(dataprefix):
@@ -118,7 +117,7 @@ if __name__ == "__main__":
         print('Test accuracy:',t_acc)
         np.savetxt(evalout,[t_auc,t_acc])
 
-    if args.predict:
+    if args.infile != '':
         ## Predict on new data
         model = model_from_json(open(architecture_file).read(),{'MyDense':MyDense})
         model.load_weights(weight_file)
@@ -130,11 +129,11 @@ if __name__ == "__main__":
 
         outdir = join(dirname(args.infile),'.'.join(['pred',model_arch,basename(args.infile)])) if args.outdir == '' else args.outdir
         if exists(outdir):
-            print 'Output directory',outdir,'exists! Overwrite? (yes/no)'
+            print('Output directory',outdir,'exists! Overwrite? (yes/no)')
             if raw_input().lower() == 'yes':
                 system('rm -r ' + outdir)
             else:
-                print 'Quit predicting!'
+                print('Quit predicting!')
                 sys.exit(1)
         for i in range(predict_batch_num):
             print(i)

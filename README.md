@@ -52,11 +52,22 @@ docker run --rm --device /dev/nvidiactl --device /dev/nvidia-uvm MOREDEVICE \
 + `DATA_TOPDIR`: same as above
 + `DATA_CODE`: same as above
 + `SEQ_SIZE`: the length of the genomic sequences
-+ `ORDER`: actions to take. Multiple ones can be used and they will be executed in order.
++ `ORDER`: actions to take. *Multiple ones can be used and they will be executed in order*.
 	+ `-y`: hyper-parameter tuning. Use `-hi` to change the number of hyper-parameter combinations to try (default:9)
-	+ `-t`: train. Use `-te` to change the number of epochs to train for.
+	+ `-t`: train. Use `-te` to change the number of epochs to train for, and `-bs` to change the size of minibatch.
 	+ `-e`: evaluate the model on the test set.
-	+ `-p`: predict on new data. Specifiy the data file with `-i`
+	+ `-p`: predict on new data.The path of data (up till the batch number) to predict must follow.  By default the prediction will be output to 'pred.MODELNAME.DATAFILE'. Use `-i` to customize the output directory (default /DATADIR/pred.MODELNAME.DATAFILENAME)
+		Example: 
+		to predict on some sequence data prepared at `/my_folder/mydata.batchX`, where X is 1,2,3. By default the output will be `/my_folder/pred.mymodel.mydata.batch`
+		```
+			-p /my_folder/mydata.batch
+			
+		```
+		To save the prediction to a customized path `/my_output_folder`:
+		```
+			-p /my_folder/mydata.batch -o /my_output_folder
+		```
+
 + `MOREDEVICE`: For each of the GPU device available on your machine, append one "--device /dev/nvidiaNUM" where NUM is the device index. For hsf1/hsf2 in  Gifford Lab, since there are three GPUs, it should be :
 	
 	```
