@@ -54,28 +54,25 @@ docker run --rm --device /dev/nvidiactl --device /dev/nvidia-uvm MOREDEVICE \
 + `SEQ_SIZE`: the length of the genomic sequences
 + `ORDER`: 
 	
-	actions to take. *Multiple ones can be used and they will be executed in order*.
-	+ `-y`: hyper-parameter tuning. 
-		
-		Use `-hi` to customize the number of hyper-parameter combinations to try (default:9)
-	+ `-t`: train on the training set. 
+	actions to take. *Multiple ones can be used and they will be executed in order*. 
+	+ `-y [-hi 9]`: hyper-parameter tuning. Output will saved under "$DATA_TOPDIR/$MODEL_FILE_NAME".
+		+	`-hi`: the number of hyper-parameter combinations to try (default:9)
+	+ `-t [-te 20 -bs 100]`: train on the training set. Output will be saved in the same folder as `-y`.
 	
-		Use `-te` to customize the number of epochs to train for (default 20), and `-bs` to change the size of minibatch (default 100).
-	+ `-e`: evaluate the model on the test set.
-	+ `-p`: predict on new data.
+		+	`-te`: the number of epochs to train for (default 20)
+		+	`-bs`: the size of minibatch (default 100).
+		+	The model for epoch with the smallest validation loss (best model) and the model for the last epoch (last model) will be saved.
+
+	+ `-e`: evaluate the model on the test set. Output will be saved in the same folder as `-y`.
+	+ `-p data_to_predict [-o output_folder]`: predict on new data.
+
+		+	`data_to_predict`: should be the prefix of the embedded file up to the batch number. For example, assume we are to predict on some sequence data prepared at `/my_folder/mydata.batchX`, where X is 1,2,3,etc., then `data_to_predict` should be `/my_folder/mydata.batch`.
 	
-		The path of data (up till the batch number) to predict must follow. Use `-o` to customize the output directory (default value see examples below). Predictions for every batch will be saved to a separate subdirectory and split into different [pickle](https://wiki.python.org/moin/UsingPickle) files by label.
+		+	`-o`: the output directory (default `/my_folder/pred.mymodel.mydata.batch`). Predictions for every batch will be saved to a separate subdirectory and split into different [pickle](https://wiki.python.org/moin/UsingPickle) files, one for each output neuron.
 		
-		Example: 
-		
-		to predict on some sequence data prepared at `/my_folder/mydata.batchX`, where X is 1,2,3,etc. By default the output directory will be `/my_folder/pred.mymodel.mydata.batch`
-		```
-			-p /my_folder/mydata.batch	
-		```
-		To save the prediction to a customized path `/my_output_folder`:
-		```
-			-p /my_folder/mydata.batch -o /my_output_folder
-		```
+	+ `-r runcode -re weightfile`: resume training from a weight file
+		+	`runcode`: the codename for this new run. The new model files will be the original ones plus `.runcode`. 
+		+	`weightfile`: the weight file to resume training from.
 
 + `MOREDEVICE`: For each of the GPU device available on your machine, append one "--device /dev/nvidiaNUM" where NUM is the device index. For hsf1/hsf2 in  Gifford Lab, since there are three GPUs, it should be :
 	

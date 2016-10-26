@@ -27,6 +27,10 @@ def parse_args():
     parser.add_argument("-hi", "--hyperiter", dest="hyperiter",default=9,type=int,help="Num of hyper-param combination to try")
     parser.add_argument("-te", "--trainepoch",default=20,type=int,help="The number of epochs to train for")
     parser.add_argument("-bs", "--batchsize",default=100,type=int,help="Batchsize in SGD-based training")
+    parser.add_argument("-w", "--weightfile",default=None,help="Weight file for the best model")
+    parser.add_argument("-l", "--lweightfile",default=None,help="Weight file after training")
+    parser.add_argument("-r", "--retrain",default=None,help="codename for the retrain run")
+    parser.add_argument("-rw", "--rweightfile",default='',help="Weight file to load for retraining")
     return parser.parse_args()
 
 def probedata(dataprefix):
@@ -54,7 +58,8 @@ if __name__ == "__main__":
 
     architecture_file = join(outdir,model_arch+'_best_archit.json')
     optimizer_file = join(outdir,model_arch+'_best_optimer.pkl')
-    weight_file = join(outdir,model_arch+'_bestmodel_weights.h5')
+    weight_file = join(outdir,model_arch+'_bestmodel_weights.h5') if args.weightfile is None else args.weightfile
+    last_weight_file = join(outdir,model_arch+'_lastmodel_weights.h5') if args.lweightfile is None else args.lweightfile
     data1prefix = join(topdir,data_code+args.prefix)
     evalout = join(outdir,model_arch+'_eval.txt')
 
@@ -92,10 +97,34 @@ if __name__ == "__main__":
         		    ,train_size,args.trainepoch,validation_data=mymodel.BatchGenerator2(args.batchsize,validbatch_num,'valid',topdir,data_code)\
         			    ,nb_val_samples=valid_size,callbacks = [checkpointer])
 
+        model.save_weights(last_weight_file)
         system('touch '+join(outdir,model_arch+'.traindone'))
         myhist = history_callback.history
         all_hist = np.asarray([myhist["loss"],myhist["acc"],myhist["val_loss"],myhist["val_acc"]]).transpose()
         np.savetxt(join(outdir,model_arch+".training_history.txt"), all_hist,delimiter = "\t",header='loss\tacc\tval_loss\tval_acc')
+
+    if args.retrain:
+        ### Resume training
+        model = model_from_json(open(architecture_file).read(),{'MyDense': MyDense})
+        model.load_weights(args.rweightfile)
+        best_optim,best_lossfunc = cPickle.load(open(optimizer_file,'rb'))
+        model.compile(loss=best_lossfunc, optimizer=best_optim,metrics=['accuracy'])
+
+        new_weight_file = weight_file + '.'+args.retrain
+        new_last_weight_file = last_weight_file + '.'+args.retrain
+
+        checkpointer = ModelCheckpoint(filepath=new_weight_file, verbose=1, save_best_only=True)
+        trainbatch_num,train_size = probedata(data1prefix+'.train.h5.batch')
+        validbatch_num,valid_size = probedata(data1prefix+'.valid.h5.batch')
+        history_callback = model.fit_generator(mymodel.BatchGenerator2(args.batchsize,trainbatch_num,'train',topdir,data_code)\
+        		    ,train_size,args.trainepoch,validation_data=mymodel.BatchGenerator2(args.batchsize,validbatch_num,'valid',topdir,data_code)\
+        			    ,nb_val_samples=valid_size,callbacks = [checkpointer])
+
+        model.save_weights(new_last_weight_file)
+        system('touch '+join(outdir,model_arch+'.traindone'))
+        myhist = history_callback.history
+        all_hist = np.asarray([myhist["loss"],myhist["acc"],myhist["val_loss"],myhist["val_acc"]]).transpose()
+        np.savetxt(join(outdir,model_arch+".training_history."+ args.retrain + ".txt"), all_hist,delimiter = "\t",header='loss\tacc\tval_loss\tval_acc')
 
     if args.eval:
         ## Evaluate
