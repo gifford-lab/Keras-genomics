@@ -1,22 +1,33 @@
+A [Keras](https://keras.io/)-based deep learning platform to perform hyper-parameter tuning, training and prediction on genomics data.
+
 ## Dependencies
 + [Docker](https://www.docker.com/)
 + NVIDIA 346.46 driver
+	+ If you want to run on Amazon EC2, we recommend using [EC2-launcher-pro](https://github.com/gifford-lab/ec2-launcher-pro) which lauches docker jobs on instance (ami-763a311e) with matched NVIDIA driver and GPU computing enviroment set up
 
 ## Quick run on the toy data
-We prepare some toy data and toy model [here](https://github.com/gifford-lab/Keras-genomics/blob/master/example/). To perform a quick run on them:
+We prepare some toy data and toy model [here](https://github.com/gifford-lab/Keras-genomics/blob/master/example/). 
+
+To perform a quick run, first convert the data to desired format and save under `$REPO_HOME/expt1`, where `$REPO_HOME` is the directory of the repository:
 
 ```
+cd $REPO_HOME
 for dtype in 'train' 'valid' 'test'
 do
 	paste - - -d' ' < example/$dtype.fa > tmp.tsv
 	python embedH5.py tmp.tsv example/$dtype.target expt1/trial2.$dtype.h5
 done
+```
 
+Then perform hyper-parameter tuning, training and testing by:
+
+```
 docker pull haoyangz/keras-genomics
 docker run --rm --device /dev/nvidiactl --device /dev/nvidia-uvm --device /dev/nvidia0 \
     -v $(pwd)/example:/modeldir -v $(pwd)/expt1:/datadir haoyangz/keras-genomics \
-	    python main.py -d /datadir -c trial2 -m /modeldir/model.py -s 1001 -y -t -e
+	    python main.py -d /datadir -c trial2 -m /modeldir/model.py -s 101 -y -t -e
 ```
+If everything works fine, you should get a test AUC around 0.86
 
 ## Data preparation
 User needs to prepare [sequence file](https://github.com/gifford-lab/Keras-genomics/blob/master/example/train.fa) in [FASTA](https://en.wikipedia.org/wiki/FASTA_format) format and [target file](https://github.com/gifford-lab/Keras-genomics/blob/master/example/train.target) for training,validation and test set. Refer to the [toy data](https://github.com/gifford-lab/Keras-genomics/blob/master/example/) we provided for more examples.

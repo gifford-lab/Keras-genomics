@@ -8,7 +8,6 @@ from keras.models import model_from_json
 from tempfile import mkdtemp
 from keras.callbacks import ModelCheckpoint
 from sklearn.metrics import accuracy_score,roc_auc_score
-from mydense import MyDense
 
 cwd = dirname(realpath(__file__))
 
@@ -86,7 +85,7 @@ if __name__ == "__main__":
 
     if args.train:
         ### Training
-        model = model_from_json(open(architecture_file).read(),{'MyDense': MyDense})
+        model = model_from_json(open(architecture_file).read())
         best_optim,best_lossfunc = cPickle.load(open(optimizer_file,'rb'))
         model.compile(loss=best_lossfunc, optimizer=best_optim,metrics=['accuracy'])
 
@@ -97,7 +96,7 @@ if __name__ == "__main__":
         		    ,train_size,args.trainepoch,validation_data=mymodel.BatchGenerator2(args.batchsize,validbatch_num,'valid',topdir,data_code)\
         			    ,nb_val_samples=valid_size,callbacks = [checkpointer])
 
-        model.save_weights(last_weight_file)
+        model.save_weights(last_weight_file, overwrite=True)
         system('touch '+join(outdir,model_arch+'.traindone'))
         myhist = history_callback.history
         all_hist = np.asarray([myhist["loss"],myhist["acc"],myhist["val_loss"],myhist["val_acc"]]).transpose()
@@ -105,7 +104,7 @@ if __name__ == "__main__":
 
     if args.retrain:
         ### Resume training
-        model = model_from_json(open(architecture_file).read(),{'MyDense': MyDense})
+        model = model_from_json(open(architecture_file).read())
         model.load_weights(args.rweightfile)
         best_optim,best_lossfunc = cPickle.load(open(optimizer_file,'rb'))
         model.compile(loss=best_lossfunc, optimizer=best_optim,metrics=['accuracy'])
@@ -120,7 +119,7 @@ if __name__ == "__main__":
         		    ,train_size,args.trainepoch,validation_data=mymodel.BatchGenerator2(args.batchsize,validbatch_num,'valid',topdir,data_code)\
         			    ,nb_val_samples=valid_size,callbacks = [checkpointer])
 
-        model.save_weights(new_last_weight_file)
+        model.save_weights(new_last_weight_file, overwrite=True)
         system('touch '+join(outdir,model_arch+'.traindone'))
         myhist = history_callback.history
         all_hist = np.asarray([myhist["loss"],myhist["acc"],myhist["val_loss"],myhist["val_acc"]]).transpose()
@@ -148,7 +147,7 @@ if __name__ == "__main__":
 
     if args.infile != '':
         ## Predict on new data
-        model = model_from_json(open(architecture_file).read(),{'MyDense':MyDense})
+        model = model_from_json(open(architecture_file).read())
         model.load_weights(weight_file)
         best_optim = cPickle.load(open(optimizer_file,'rb'))
         model.compile(loss='binary_crossentropy', optimizer=best_optim,metrics=['accuracy'])
