@@ -1,9 +1,11 @@
 A [Keras](https://keras.io/)-based deep learning platform to perform hyper-parameter tuning, training and prediction on genomics data.
 
 ## Dependencies
-+ [Docker](https://www.docker.com/)
-+ NVIDIA 346.46 driver
-	+ If you want to run on Amazon EC2, we recommend using [EC2-launcher-pro](https://github.com/gifford-lab/ec2-launcher-pro) which lauches docker jobs on instance (ami-763a311e) with matched NVIDIA driver and GPU computing enviroment set up
++ [Docker](https://docs.docker.com/engine/installation/)
++ [NVIDIA-docker](https://github.com/NVIDIA/nvidia-docker)
++ NVIDIA driver: currently we support NVIDIA 346.46 (CUDA 7.0) and NVIDIA 367.48 (CUDA 8.0)
+
+If you want to run on Amazon EC2 cloud, we recommend using [EC2-launcher-pro](https://github.com/gifford-lab/ec2-launcher-pro) which lauches docker jobs on instance (ami-763a311e for cuda7.0 and ami-e3a6fcf4 for cuda8.0) with matched NVIDIA driver and GPU computing enviroment set up for you.
 
 ## Quick run on the toy data
 We prepare some toy data and toy model [here](https://github.com/gifford-lab/Keras-genomics/blob/master/example/). 
@@ -21,13 +23,14 @@ done
 
 Then perform hyper-parameter tuning, training and testing by:
 
+*Note: change all the `CUDA_VER` below to "cuda7.0" or "cuda8.0" depending on your NVIDIA driver version*
+
 ```
-docker pull haoyangz/keras-genomics
-docker run --rm --device /dev/nvidiactl --device /dev/nvidia-uvm --device /dev/nvidia0 \
-    -v $(pwd)/example:/modeldir -v $(pwd)/expt1:/datadir haoyangz/keras-genomics \
+docker pull haoyangz/keras-genomics:CUDA_VER
+nvidia-docker run --rm -v $(pwd)/example:/modeldir -v $(pwd)/expt1:/datadir haoyangz/keras-genomics:CUDA_VER \
 	    python main.py -d /datadir -c trial2 -m /modeldir/model.py -s 101 -y -t -e
 ```
-If everything works fine, you should get a test AUC around 0.86
+All the intermediate output will be under `$REO_HOME/expt1/trial2`. If everything works fine, you should get a test AUC around 0.86
 
 ## Data preparation
 User needs to prepare [sequence file](https://github.com/gifford-lab/Keras-genomics/blob/master/example/train.fa) in [FASTA](https://en.wikipedia.org/wiki/FASTA_format) format and [target file](https://github.com/gifford-lab/Keras-genomics/blob/master/example/train.target) for training,validation and test set. Refer to the [toy data](https://github.com/gifford-lab/Keras-genomics/blob/master/example/) we provided for more examples.
@@ -52,9 +55,8 @@ We use Docker to free users from spending hours configuring the environment. But
 
 #### Run with Docker (off-the-shelf)
 ```
-docker pull haoyangz/keras-genomics
-docker run --rm --device /dev/nvidiactl --device /dev/nvidia-uvm MOREDEVICE \
-	-v MODEL_TOPDIR:/modeldir -v DATA_TOPDIR:/datadir haoyangz/keras-genomics \
+docker pull haoyangz/keras-genomics:CUDA_VER
+nvidia-docker run --rm -v MODEL_TOPDIR:/modeldir -v DATA_TOPDIR:/datadir haoyangz/keras-genomics:CUDA_VER \
 	python main.py -d /datadir -c DATA_CODE -m /modeldir/MODEL_FILE_NAME -s SEQ_SIZE ORDER
 ```
 
@@ -85,14 +87,12 @@ docker run --rm --device /dev/nvidiactl --device /dev/nvidia-uvm MOREDEVICE \
 		+	`runcode`: the codename for this new run. The new model files will be the original ones plus `.runcode`. 
 		+	`weightfile`: the weight file to resume training from.
 
-+ `MOREDEVICE`: For each of the GPU device available on your machine, append one "--device /dev/nvidiaNUM" where NUM is the device index. For hsf1/hsf2 in  Gifford Lab, since there are three GPUs, it should be :
-	
-	```
-		--device /dev/nvidia0 --device /dev/nvidia1 --device /dev/nvidia2
-	```
++ `CUDA_VER`: 'cuda7.0' or 'cuda8.0' depending on your NVIDIA driver version.
 
 #### Run without Docker (need to manually install packages)
-Please refer to [here](https://github.com/gifford-lab/Keras-genomics/blob/master/Dockerfile)  and [here](https://hub.docker.com/r/haoyangz/keras-docker/~/dockerfile/) to configure your enviroment.
+Please refer to [here](https://github.com/gifford-lab/Keras-genomics/blob/master/Dockerfiles/cuda7.0/Dockerfile)  and [here](https://hub.docker.com/r/haoyangz/keras-docker/~/dockerfile/) to install the dependencies.
+
+Then execute the program by:
 ```
 python $REPO_HOME/main.py -d DATA_TOPDIR -c DATA_CODE -m MODEL_TOPDIR/MODEL_FILE_NAME -s SEQ_SIZE ORDER
 ```
