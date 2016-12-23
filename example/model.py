@@ -9,6 +9,8 @@ from keras.callbacks import ModelCheckpoint
 from keras.constraints import maxnorm
 from random import randint
 from sklearn.cross_validation import train_test_split
+from keras import backend as K
+K.set_image_dim_ordering('th')
 
 def reportAcc(acc,score,bestaccfile):
     print('Hyperas:valid accuracy:', acc,'valid loss',score)
@@ -25,19 +27,19 @@ def reportAcc(acc,score,bestaccfile):
 def model(X_train, Y_train, X_test, Y_test):
     W_maxnorm = 3
     DROPOUT = {{choice([0.3,0.5,0.7])}}
-                                                                                                                                            
+
     model = Sequential()
     model.add(Convolution2D(64, 1, 5, border_mode='same', input_shape=(4, 1, DATASIZE),activation='relu',W_constraint=maxnorm(W_maxnorm)))
     model.add(MaxPooling2D(pool_size=(1, 5),strides=(1,3)))
     model.add(Flatten())
-                                                                                                                                            
+
     model.add(Dense(32,activation='relu'))
     model.add(Dropout(DROPOUT))
     model.add(Dense(32,activation='relu'))
     model.add(Dropout(DROPOUT))
     model.add(Dense(2))
     model.add(Activation('softmax'))
-                                                                                                                                            
+
     myoptimizer = RMSprop(lr={{choice([0.01,0.001,0.0001])}}, rho=0.9, epsilon=1e-06)
     mylossfunc = 'binary_crossentropy'
     model.compile(loss=mylossfunc, optimizer=myoptimizer,metrics=['accuracy'])
@@ -47,7 +49,7 @@ def model(X_train, Y_train, X_test, Y_test):
     model_arch = 'MODEL_ARCH'
     bestaccfile = join('TOPDIR',model_arch,model_arch+'_hyperbestacc')
     reportAcc(acc,score,bestaccfile)
-    
+
     return {'loss': score, 'status': STATUS_OK,'model':(model.to_json(),myoptimizer,mylossfunc)}
 
 def data():
