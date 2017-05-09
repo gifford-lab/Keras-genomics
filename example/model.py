@@ -1,7 +1,7 @@
 import h5py
 from os.path import join,exists
 from keras.models import Sequential
-from keras.layers.core import Dense, Dropout, Activation,Flatten,Merge
+from keras.layers.core import Dense, Dropout, Activation,Flatten
 from keras.layers.convolutional import Convolution2D,MaxPooling2D
 from keras.optimizers import Adadelta,RMSprop
 from hyperas.distributions import choice, uniform, conditional
@@ -41,7 +41,7 @@ def model(X_train, Y_train, X_test, Y_test):
     model.add(Activation('softmax'))
 
     myoptimizer = RMSprop(lr={{choice([0.01,0.001,0.0001])}}, rho=0.9, epsilon=1e-06)
-    mylossfunc = 'binary_crossentropy'
+    mylossfunc = 'categorical_crossentropy'
     model.compile(loss=mylossfunc, optimizer=myoptimizer,metrics=['accuracy'])
     model.fit(X_train, Y_train, batch_size=100, nb_epoch=5,validation_split=0.1)
 
