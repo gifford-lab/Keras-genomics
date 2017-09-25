@@ -159,10 +159,10 @@ if __name__ == "__main__":
 
         pred = np.asarray([])
         y_true = np.asarray([])
-        testbatch_num = int(subprocess.check_output('ls '+data1prefix+'.test.h5.batch* | wc -l', shell=True).split()[0])
+        testbatch_num = int(subprocess.check_output('ls '+data1prefix+'test.h5.batch* | wc -l', shell=True).split()[0])
         for X1_train,Y_train in mymodel.BatchGenerator(testbatch_num,'test',topdir,data_code):
-            pred = np.append(pred,[x[0] for x in model.predict(X1_train)])
-            y_true = np.append(y_true,[x[0] for x in Y_train])
+            pred = np.append(pred, model.predict(X1_train))
+            y_true = np.append(y_true, Y_train)
 
         t_auc = roc_auc_score(y_true,pred)
         t_acc = accuracy_score(y_true,[1 if x>0.5 else 0 for x in pred])
