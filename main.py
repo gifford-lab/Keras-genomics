@@ -69,7 +69,7 @@ if __name__ == "__main__":
     model_arch = model_arch[:-3] if model_arch[-3:] == '.py' else model_arch
     data_code = args.datacode
 
-    outdir = join(topdir,model_arch)
+    outdir = join(topdir,model_arch) if not args.outdir else args.outdir
     if not exists(outdir):
         makedirs(outdir)
 
@@ -77,7 +77,7 @@ if __name__ == "__main__":
     optimizer_file = join(outdir,model_arch+'_best_optimer.pkl')
     weight_file = join(outdir,model_arch+'_bestmodel_weights.h5') if args.weightfile is None else args.weightfile
     last_weight_file = join(outdir,model_arch+'_lastmodel_weights.h5') if args.lweightfile is None else args.lweightfile
-    data1prefix = join(topdir,data_code+args.prefix)
+    data1prefix = join(topdir,data_code+args.prefix+'.') if data_code+args.prefix else topdir+'/'
     evalout = join(outdir,model_arch+'_eval.txt')
 
     tmpdir = mkdtemp()
@@ -110,14 +110,14 @@ if __name__ == "__main__":
         checkpointer = ModelCheckpoint(filepath=weight_file, verbose=1, save_best_only=True)
 
         if args.datamode == 'generator':
-            trainbatch_num,train_size = probedata(data1prefix+'.train.h5.batch')
-            validbatch_num,valid_size = probedata(data1prefix+'.valid.h5.batch')
+            trainbatch_num,train_size = probedata(data1prefix+'train.h5.batch')
+            validbatch_num,valid_size = probedata(data1prefix+'valid.h5.batch')
             history_callback = model.fit_generator(mymodel.BatchGenerator2(args.batchsize,trainbatch_num,'train',topdir,data_code)\
-            		    ,np.ceil(float(train_size)/args.batchsize),args.trainepoch,validation_data=mymodel.BatchGenerator2(args.batchsize,validbatch_num,'valid',topdir,data_code)\
-            			    ,validation_steps=np.ceil(float(valid_size)/args.batchsize),callbacks = [checkpointer])
+            		    ,train_size,args.trainepoch,validation_data=mymodel.BatchGenerator2(args.batchsize,validbatch_num,'valid',topdir,data_code)\
+            			    ,nb_val_samples=valid_size,callbacks = [checkpointer])
         else:
-            Y_train, traindata = readdata(data1prefix+'.train.h5.batch')
-            Y_valid, validdata = readdata(data1prefix+'.valid.h5.batch')
+            Y_train, traindata = readdata(data1prefix+'train.h5.batch')
+            Y_valid, validdata = readdata(data1prefix+'valid.h5.batch')
             history_callback =  model.fit(traindata, Y_train, batch_size=args.batchsize, epochs=args.trainepoch,validation_data=(validdata,Y_valid),callbacks = [checkpointer])
 
 
