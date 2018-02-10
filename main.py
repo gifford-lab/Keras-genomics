@@ -1,75 +1,82 @@
 from __future__ import print_function
-import theano,time,numpy as np,sys,h5py,cPickle,argparse,subprocess
+import time,numpy as np,sys,h5py,cPickle,argparse,subprocess
 from hyperopt import Trials, STATUS_OK, tpe
 from hyperas import optim
 from os.path import join,dirname,basename,exists,realpath
 from os import system,chdir,getcwd,makedirs
 from keras.models import model_from_json
 from tempfile import mkdtemp
-from keras.callbacks import ModelCheckpoint
+from keras.callbacks import ModelCheckpoint,EarlyStopping
 from sklearn.metrics import accuracy_score,roc_auc_score
+from pprint import pprint
+
+from hyperband import Hyperband
 
 cwd = dirname(realpath(__file__))
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Launch a list of commands on EC2.")
+    parser = argparse.ArgumentParser(description="Keras + Hyperband for genomics")
     parser.add_argument("-y", "--hyper", dest="hyper", default=False, action='store_true',help="Perform hyper-parameter tuning")
     parser.add_argument("-t", "--train", dest="train", default=False, action='store_true',help="Train on the training set with the best hyper-params")
     parser.add_argument("-e", "--eval", dest="eval", default=False, action='store_true',help="Evaluate the model on the test set")
     parser.add_argument("-p", "--predit", dest="infile", default='', help="Path to data to predict on (up till batch number)")
-    parser.add_argument("-d", "--topdir", dest="topdir",help="The data directory")
-    parser.add_argument("-s", "--datasize", dest="datasize",help="The length of input sequence")
-    parser.add_argument("-c", "--datacode", dest="datacode",default='data',help="The prefix of each data file")
-    parser.add_argument("-m", "--model", dest="model",help="Path to the model file")
+    parser.add_argument("-d", "--topdir", dest="topdir", help="The data directory")
+    parser.add_argument("-m", "--model", dest="model", help="Path to the model file")
     parser.add_argument("-o", "--outdir", dest="outdir",default='',help="Output directory for the prediction on new data")
-    parser.add_argument("-x", "--prefix", dest="prefix",default='',help="Additional prefix appended after datacode")
-    parser.add_argument("-hi", "--hyperiter", dest="hyperiter",default=9,type=int,help="Num of hyper-param combination to try")
-    parser.add_argument("-te", "--trainepoch",default=20,type=int,help="The number of epochs to train for")
-    parser.add_argument("-bs", "--batchsize",default=100,type=int,help="Batchsize in SGD-based training")
-    parser.add_argument("-w", "--weightfile",default=None,help="Weight file for the best model")
-    parser.add_argument("-l", "--lweightfile",default=None,help="Weight file after training")
-    parser.add_argument("-r", "--retrain",default=None,help="codename for the retrain run")
-    parser.add_argument("-rw", "--rweightfile",default='',help="Weight file to load for retraining")
-    parser.add_argument("-dm", "--datamode",default='generator',help="Weight file to load for retraining")
+    parser.add_argument("-hi", "--hyperiter", dest="hyperiter", default=20, type=int, help="Num of max iteration for each hyper-param config")
+    parser.add_argument("-te", "--trainepoch", default=20, type=int, help="The number of epochs to train for")
+    parser.add_argument("-pa", "--patience", default=10, type=int, help="number of epochs with no improvement after which training will be stopped.")
+    parser.add_argument("-bs", "--batchsize", default=100, type=int,help="Batchsize in SGD-based training")
+    parser.add_argument("-w", "--weightfile", default=None, help="Weight file for the best model")
+    parser.add_argument("-l", "--lweightfile", default=None, help="Weight file after training")
+    parser.add_argument("-r", "--retrain", default=None, help="codename for the retrain run")
+    parser.add_argument("-rw", "--rweightfile", default='', help="Weight file to load for retraining")
+    parser.add_argument("-dm", "--datamode", default='memory', help="whether to load data into memory ('memory') or using a generator('generator')")
 
     return parser.parse_args()
 
-def probedata(dataprefix):
-    allfiles = subprocess.check_output('ls '+dataprefix+'*', shell=True).split('\n')[:-1]
-    cnt = 0
-    samplecnt = 0
-    for x in allfiles:
-        if  x.split(dataprefix)[1].isdigit():
-            cnt += 1
-            data = h5py.File(x,'r')
-            samplecnt += len(data['label'])
-    return (cnt,samplecnt)
 
-def readdata(dataprefix):
-    allfiles = subprocess.check_output('ls '+dataprefix+'*', shell=True).split('\n')[:-1]
-    cnt = 0
-    samplecnt = 0
-    for x in allfiles:
-        if  x.split(dataprefix)[1].isdigit():
-            cnt += 1
-            dataall = h5py.File(x,'r')
-            if cnt == 1:
-                label = np.asarray(dataall['label'])
-                data = np.asarray(dataall['data'])
-            else:
-                label = np.vstack((label,dataall['label']))
-                data = np.vstack((data,dataall['data']))
-    return (label,data)
+def train_func(model, weightfile2save):
+    checkpointer = ModelCheckpoint(filepath=weightfile2save, verbose=1, save_best_only=True)
+    early_stopping = EarlyStopping( monitor = 'val_loss', patience = args.patience, verbose = 0 )
+    if args.datamode == 'generator':
+        trainbatch_num, train_size = hb.probedata(join(args.topdir, 'train.h5.batch'))
+        validbatch_num, valid_size = hb.probedata(join(args.topdir, 'valid.h5.batch'))
+        history_callback = model.fit_generator(
+                hb.BatchGenerator(args.batchsize, join(args.topdir, 'train.h5.batch')),
+                train_size/args.batchsize,
+                args.trainepoch,
+                validation_data=hb.BatchGenerator(args.batchsize, join(args.topdir, 'valid.h5.batch')),
+                validation_steps=np.ceil(float(valid_size)/args.batchsize),
+                callbacks = [checkpointer, early_stopping])
+    else:
+        Y_train, traindata = hb.readdata(join(args.topdir, 'train.h5.batch'))
+        Y_valid, validdata = hb.readdata(join(args.topdir, 'valid.h5.batch'))
+        history_callback =  model.fit(
+                traindata,
+                Y_train,
+                batch_size=args.batchsize,
+                epochs=args.trainepoch,
+                validation_data=(validdata, Y_valid),
+                callbacks = [checkpointer, early_stopping])
+    return model, history_callback
+
+def load_model(weightfile2load=None):
+    model = model_from_json(open(architecture_file).read())
+    if weightfile2load:
+        model.load_weights(weightfile2load)
+    best_optim, best_optim_config, best_lossfunc = cPickle.load(open(optimizer_file, 'rb'))
+    model.compile(loss=best_lossfunc, optimizer = best_optim.from_config(best_optim_config), metrics=['accuracy'])
+    return model
+
 
 if __name__ == "__main__":
 
     args = parse_args()
-    topdir = args.topdir
     model_arch = basename(args.model)
     model_arch = model_arch[:-3] if model_arch[-3:] == '.py' else model_arch
-    data_code = args.datacode
 
-    outdir = join(topdir,model_arch)
+    outdir = join(args.topdir, model_arch)
     if not exists(outdir):
         makedirs(outdir)
 
@@ -77,49 +84,29 @@ if __name__ == "__main__":
     optimizer_file = join(outdir,model_arch+'_best_optimer.pkl')
     weight_file = join(outdir,model_arch+'_bestmodel_weights.h5') if args.weightfile is None else args.weightfile
     last_weight_file = join(outdir,model_arch+'_lastmodel_weights.h5') if args.lweightfile is None else args.lweightfile
-    data1prefix = join(topdir,data_code+args.prefix)
     evalout = join(outdir,model_arch+'_eval.txt')
 
     tmpdir = mkdtemp()
-    with open(args.model) as f,open(join(tmpdir,'mymodel.py'),'w') as fout:
-        for x in f:
-            newline = x.replace('DATACODE',data_code)
-            newline = newline.replace('TOPDIR',topdir)
-            newline = newline.replace('DATASIZE',str(args.datasize))
-            newline = newline.replace('MODEL_ARCH',model_arch)
-            newline = newline.replace('PREFIX',args.prefix)
-            fout.write(newline)
-
+    system(' '.join(['cp', args.model, join(tmpdir,'mymodel.py')]))
     sys.path.append(tmpdir)
-    from mymodel import *
     import mymodel
+    hb = Hyperband( mymodel.get_params, mymodel.try_params,  args.topdir, max_iter=args.hyperiter, datamode=args.datamode)
 
     if args.hyper:
         ## Hyper-parameter tuning
-        best_run, best_model = optim.minimize(model=mymodel.model,data=mymodel.data,algo=tpe.suggest,max_evals=int(args.hyperiter),trials=Trials())
-        best_archit,best_optim,best_lossfunc = best_model
+        results = hb.run( skip_last = 1 )
+
+        best_result = sorted( results, key = lambda x: x['loss'] )[0]
+        pprint(best_result['params'])
+
+        best_archit, best_optim, best_optim_config, best_lossfunc = best_result['model']
         open(architecture_file, 'w').write(best_archit)
-        cPickle.dump((best_optim,best_lossfunc),open(optimizer_file,'wb') )
+        cPickle.dump((best_optim, best_optim_config, best_lossfunc),open(optimizer_file,'wb') )
 
     if args.train:
         ### Training
-        model = model_from_json(open(architecture_file).read())
-        best_optim,best_lossfunc = cPickle.load(open(optimizer_file,'rb'))
-        model.compile(loss=best_lossfunc, optimizer=best_optim,metrics=['accuracy'])
-
-        checkpointer = ModelCheckpoint(filepath=weight_file, verbose=1, save_best_only=True)
-
-        if args.datamode == 'generator':
-            trainbatch_num,train_size = probedata(data1prefix+'.train.h5.batch')
-            validbatch_num,valid_size = probedata(data1prefix+'.valid.h5.batch')
-            history_callback = model.fit_generator(mymodel.BatchGenerator2(args.batchsize,trainbatch_num,'train',topdir,data_code)\
-            		    ,np.ceil(float(train_size)/args.batchsize),args.trainepoch,validation_data=mymodel.BatchGenerator2(args.batchsize,validbatch_num,'valid',topdir,data_code)\
-            			    ,validation_steps=np.ceil(float(valid_size)/args.batchsize),callbacks = [checkpointer])
-        else:
-            Y_train, traindata = readdata(data1prefix+'.train.h5.batch')
-            Y_valid, validdata = readdata(data1prefix+'.valid.h5.batch')
-            history_callback =  model.fit(traindata, Y_train, batch_size=args.batchsize, epochs=args.trainepoch,validation_data=(validdata,Y_valid),callbacks = [checkpointer])
-
+        model = load_model()
+        model, history_callback = train_func(model, weight_file)
 
         model.save_weights(last_weight_file, overwrite=True)
         system('touch '+join(outdir,model_arch+'.traindone'))
@@ -129,20 +116,11 @@ if __name__ == "__main__":
 
     if args.retrain:
         ### Resume training
-        model = model_from_json(open(architecture_file).read())
-        model.load_weights(args.rweightfile)
-        best_optim,best_lossfunc = cPickle.load(open(optimizer_file,'rb'))
-        model.compile(loss=best_lossfunc, optimizer=best_optim,metrics=['accuracy'])
-
         new_weight_file = weight_file + '.'+args.retrain
         new_last_weight_file = last_weight_file + '.'+args.retrain
 
-        checkpointer = ModelCheckpoint(filepath=new_weight_file, verbose=1, save_best_only=True)
-        trainbatch_num,train_size = probedata(data1prefix+'.train.h5.batch')
-        validbatch_num,valid_size = probedata(data1prefix+'.valid.h5.batch')
-        history_callback = model.fit_generator(mymodel.BatchGenerator2(args.batchsize,trainbatch_num,'train',topdir,data_code)\
-        		    ,np.ceil(float(train_size)/args.batchsize),args.trainepoch,validation_data=mymodel.BatchGenerator2(args.batchsize,validbatch_num,'valid',topdir,data_code)\
-        			    ,validation_steps=np.ceil(float(valid_size)/args.batchsize),callbacks = [checkpointer])
+        model = load_model(args.rweightfile)
+        model, history_callback = train_func(model, new_weight_file)
 
         model.save_weights(new_last_weight_file, overwrite=True)
         system('touch '+join(outdir,model_arch+'.traindone'))
@@ -152,54 +130,52 @@ if __name__ == "__main__":
 
     if args.eval:
         ## Evaluate
-        model = model_from_json(open(architecture_file).read())
-        model.load_weights(weight_file)
-        best_optim,best_lossfunc = cPickle.load(open(optimizer_file,'rb'))
-        model.compile(loss=best_lossfunc, optimizer=best_optim,metrics=['accuracy'])
+        model = load_model(weight_file)
 
-        pred = np.asarray([])
-        y_true = np.asarray([])
-        testbatch_num = int(subprocess.check_output('ls '+data1prefix+'.test.h5.batch* | wc -l', shell=True).split()[0])
-        for X1_train,Y_train in mymodel.BatchGenerator(testbatch_num,'test',topdir,data_code):
-            pred = np.append(pred,[x[0] for x in model.predict(X1_train)])
-            y_true = np.append(y_true,[x[0] for x in Y_train])
+        pred = []
+        y_true = []
+        testbatch_num, _ = hb.probedata(join(args.topdir, 'test.h5.batch'))
+        test_generator = hb.BatchGenerator(None, join(args.topdir, 'test.h5.batch'))
+        for _ in range(testbatch_num):
+            X_test, Y_test = test_generator.next()
+            pred += [x[0] for x in model.predict(X_test)]
+            y_true += [x[0] for x in Y_test]
 
-        t_auc = roc_auc_score(y_true,pred)
-        t_acc = accuracy_score(y_true,[1 if x>0.5 else 0 for x in pred])
-        print('Test AUC:',t_auc)
-        print('Test accuracy:',t_acc)
-        np.savetxt(evalout,[t_auc,t_acc])
+        t_auc = roc_auc_score(y_true, pred)
+        t_acc = accuracy_score(y_true, [ 1 if x>0.5 else 0 for x in pred])
+        print('Test AUC:', t_auc)
+        print('Test accuracy:', t_acc)
+        np.savetxt(evalout, [t_auc, t_acc])
 
     if args.infile != '':
         ## Predict on new data
-        model = model_from_json(open(architecture_file).read())
-        model.load_weights(weight_file)
-        best_optim, best_lossfunc = cPickle.load(open(optimizer_file,'rb'))
-        model.compile(loss=best_lossfunc, optimizer=best_optim,metrics=['accuracy'])
+        model = load_model(weight_file)
 
-        predict_batch_num = len([ 1  for x in subprocess.check_output('ls '+args.infile+'*', shell=True).split('\n')[:-1] if args.infile in x  if x.split(args.infile)[1].isdigit()])
-        print('Total number of batch to predict:',predict_batch_num)
+        predict_batch_num, _ = hb.probedata(args.infile)
+        print('Total number of batch to predict:', predict_batch_num)
 
-        outdir = join(dirname(args.infile),'.'.join(['pred',model_arch,basename(args.infile)])) if args.outdir == '' else args.outdir
+        outdir = join(dirname(args.infile), '.'.join(['pred', model_arch, basename(args.infile)])) if args.outdir == '' else args.outdir
         if exists(outdir):
-            print('Output directory',outdir,'exists! Overwrite? (yes/no)')
+            print('Output directory', outdir, 'exists! Overwrite? (yes/no)')
             if raw_input().lower() == 'yes':
                 system('rm -r ' + outdir)
             else:
                 print('Quit predicting!')
                 sys.exit(1)
+
         for i in range(predict_batch_num):
-            print(i)
-            data1 = h5py.File(args.infile+str(i+1),'r')['data']
+            print('predict on batch', i)
+            batch_data = h5py.File(args.infile+str(i+1), 'r')['data']
+
             time1 = time.time()
-            pred = model.predict(data1,batch_size=1280)
+            pred = model.predict(batch_data)
             time2 = time.time()
             print('predict took %0.3f ms' % ((time2-time1)*1000.0))
 
-            t_outdir = join(outdir,'batch'+str(i+1))
+            t_outdir = join(outdir, 'batch'+str(i+1))
             makedirs(t_outdir)
             for label_dim in range(pred.shape[1]):
-                with open(join(t_outdir,str(label_dim)+'.pkl'),'wb') as f:
-                    cPickle.dump(pred[:,label_dim],f)
+                with open(join(t_outdir, str(label_dim)+'.pkl'), 'wb') as f:
+                    cPickle.dump(pred[:, label_dim], f)
 
     system('rm -r ' + tmpdir)

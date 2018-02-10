@@ -1,86 +1,92 @@
-import h5py
-from os.path import join,exists
+"function (and parameter space) definitions for hyperband"
+"binary classification with Keras (multilayer perceptron)"
+
+from os.path import join
+import subprocess, h5py
+from common_defs import *
+
+# a dict with x_train, y_train, x_test, y_test
+
 from keras.models import Sequential
-from keras.layers.core import Dense, Dropout, Activation,Flatten
-from keras.layers.convolutional import Convolution2D,MaxPooling2D
+from keras.layers.core import Dense, Dropout, Flatten, Activation
+from keras.layers.normalization import BatchNormalization as BatchNorm
+from keras.layers.convolutional import ZeroPadding2D, Conv2D
+from keras.layers import GlobalMaxPooling2D
+from keras.callbacks import EarlyStopping
+from keras.layers.advanced_activations import *
 from keras.optimizers import Adadelta,RMSprop
-from hyperas.distributions import choice, uniform, conditional
-from keras.callbacks import ModelCheckpoint
-from keras.constraints import maxnorm
-from random import randint
-from sklearn.cross_validation import train_test_split
-from keras import backend as K
-K.set_image_dim_ordering('th')
 
-def reportAcc(acc,score,bestaccfile):
-    print('Hyperas:valid accuracy:', acc,'valid loss',score)
-    if not exists(bestaccfile):
-        current = float("inf")
-    else:
-        with open(bestaccfile) as f:
-            current = float(f.readline().strip())
-    if score < current:
-        with open(bestaccfile,'w') as f:
-            f.write('%f\n' % score)
-            f.write('%f\n' % acc)
+from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler, MaxAbsScaler
 
-def model(X_train, Y_train, X_test, Y_test):
-    W_maxnorm = 3
-    DROPOUT = {{choice([0.3,0.5,0.7])}}
 
-    model = Sequential()
-    model.add(Convolution2D(64, 1, 5, border_mode='same', input_shape=(4, 1, DATASIZE),activation='relu',W_constraint=maxnorm(W_maxnorm)))
-    model.add(MaxPooling2D(pool_size=(1, 5),strides=(1,3)))
-    model.add(Flatten())
+space = {
+	'DROPOUT': hp.choice( 'drop', ( 0.1,0.5,0.75)),
+	'DELTA': hp.choice( 'delta', ( 1e-04,1e-06,1e-08)),
+	'MOMENT': hp.choice( 'moment', (0.9, 0.99, 0.999 )),
+}
 
-    model.add(Dense(32,activation='relu'))
-    model.add(Dropout(DROPOUT))
-    model.add(Dense(32,activation='relu'))
-    model.add(Dropout(DROPOUT))
-    model.add(Dense(2))
-    model.add(Activation('softmax'))
 
-    myoptimizer = RMSprop(lr={{choice([0.01,0.001,0.0001])}}, rho=0.9, epsilon=1e-06)
-    mylossfunc = 'categorical_crossentropy'
-    model.compile(loss=mylossfunc, optimizer=myoptimizer,metrics=['accuracy'])
-    model.fit(X_train, Y_train, batch_size=100, nb_epoch=5,validation_split=0.1)
+def get_params():
+	params = sample( space )
+	return handle_integers( params )
 
-    score, acc = model.evaluate(X_test,Y_test)
-    model_arch = 'MODEL_ARCH'
-    bestaccfile = join('TOPDIR',model_arch,model_arch+'_hyperbestacc')
-    reportAcc(acc,score,bestaccfile)
 
-    return {'loss': score, 'status': STATUS_OK,'model':(model.to_json(),myoptimizer,mylossfunc)}
+def print_params( params ):
+	pprint({ k: v for k, v in params.items() if not k.startswith( 'layer_' )})
+	print
 
-def data():
-    myprefix = join('TOPDIR','DATACODE' + 'PREFIX')
-    X_train,Y_train = getdata(myprefix + '.train.h5.batch')
-    X_test,Y_test = getdata(myprefix + '.valid.h5.batch')
-    return X_train, Y_train, X_test, Y_test
 
-def BatchGenerator(batchnum,cls,topdir,data_code):
-    data1prefix = join(topdir,data_code + 'PREFIX' +'.'+cls+'.h5.batch')
-    for i in range(batchnum):
-        data1f = h5py.File(data1prefix+str(i+1),'r')
-        data1 = data1f['data']
-        label = data1f['label']
-        yield (data1,label)
+def try_params( n_iterations, params, data=None, datamode='memory'):
 
-def BatchGenerator2(minibatch_size,batchnum,cls,topdir,data_code):
-    data1prefix = join(topdir,data_code + 'PREFIX' +'.'+cls+'.h5.batch')
-    while True:
-        for i in range(batchnum):
-            data1f = h5py.File(data1prefix+str(i+1),'r')
-            data1 = data1f['data']
-            label = data1f['label']
-            datalen = len(data1)
-            idx = 0
-            while idx+minibatch_size <= datalen:
-                idx += minibatch_size
-                yield ([data1[(idx-minibatch_size):idx],label[(idx-minibatch_size):idx]])
-            if idx < datalen:
-                yield ([ data1[idx:],label[idx:]    ])
+	print "iterations:", n_iterations
+	print_params( params )
 
-def getdata(data1prefix):
-    data1f = h5py.File(data1prefix+'1','r')
-    return (data1f['data'],data1f['label'])
+        batchsize = 100
+        if datamode == 'memory':
+            X_train, Y_train = data['train']
+            X_valid, Y_valid = data['valid']
+            inputshape = X_train.shape[1:]
+        else:
+            train_generator = data['train']['gen_func'](batchsize, data['train']['path'])
+            valid_generator = data['valid']['gen_func'](batchsize, data['valid']['path'])
+            train_epoch_step = data['train']['n_sample'] / batchsize
+            valid_epoch_step = data['valid']['n_sample'] / batchsize
+            inputshape = data['train']['gen_func'](batchsize, data['train']['path']).next()[0].shape[1:]
+
+        model = Sequential()
+	model.add(Conv2D(128, (1, 24), padding='same', input_shape=inputshape, activation='relu'))
+        model.add(GlobalMaxPooling2D())
+
+        model.add(Dense(32,activation='relu'))
+        model.add(Dropout(params['DROPOUT']))
+        model.add(Dense(2))
+        model.add(Activation('softmax'))
+
+        optim = Adadelta
+        myoptimizer = optim(epsilon=params['DELTA'], rho=params['MOMENT'])
+        mylossfunc = 'categorical_crossentropy'
+        model.compile(loss=mylossfunc, optimizer=myoptimizer,metrics=['accuracy'])
+
+        early_stopping = EarlyStopping( monitor = 'val_loss', patience = 3, verbose = 0 )
+
+        if datamode == 'memory':
+            model.fit(
+                    X_train,
+                    Y_train,
+                    batch_size=batchsize,
+                    epochs=int( round( n_iterations )),
+                    validation_data=(X_valid, Y_valid),
+                    callbacks = [ early_stopping ])
+            score, acc = model.evaluate(X_valid,Y_valid)
+        else:
+            model.fit_generator(
+                    train_generator,
+                    steps_per_epoch=train_epoch_step,
+                    epochs=int( round( n_iterations )),
+                    validation_data=valid_generator,
+                    validation_steps=valid_epoch_step,
+                    callbacks = [ early_stopping ])
+            score, acc = model.evaluate_generator(valid_generator, steps=valid_epoch_step)
+
+	return { 'loss': score, 'model': (model.to_json(), optim, myoptimizer.get_config(), mylossfunc) }
+
