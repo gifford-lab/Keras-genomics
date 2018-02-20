@@ -32,6 +32,8 @@ def parse_args():
     parser.add_argument("-r", "--retrain", default=None, help="codename for the retrain run")
     parser.add_argument("-rw", "--rweightfile", default='', help="Weight file to load for retraining")
     parser.add_argument("-dm", "--datamode", default='memory', help="whether to load data into memory ('memory') or using a generator('generator')")
+    parser.add_argument("-ei", "--evalidx", dest='evalidx', default=0, type=int, help="which output neuron (0-based) to calculate 2-class auROC for")
+    parser.add_argument("--epochratio", default=1, type=int, help="when training with data generator, optionally shrink each epoch size by this factor to enable more frequen evaluation on the valid set")
 
     return parser.parse_args()
 
@@ -44,7 +46,7 @@ def train_func(model, weightfile2save):
         validbatch_num, valid_size = hb.probedata(join(args.topdir, 'valid.h5.batch'))
         history_callback = model.fit_generator(
                 hb.BatchGenerator(args.batchsize, join(args.topdir, 'train.h5.batch')),
-                train_size/args.batchsize,
+                train_size/args.batchsize/args.epochratio,
                 args.trainepoch,
                 validation_data=hb.BatchGenerator(args.batchsize, join(args.topdir, 'valid.h5.batch')),
                 validation_steps=np.ceil(float(valid_size)/args.batchsize),
@@ -66,7 +68,7 @@ def load_model(weightfile2load=None):
     if weightfile2load:
         model.load_weights(weightfile2load)
     best_optim, best_optim_config, best_lossfunc = cPickle.load(open(optimizer_file, 'rb'))
-    model.compile(loss=best_lossfunc, optimizer = best_optim.from_config(best_optim_config), metrics=['accuracy'])
+    model.compile(loss=best_lossfunc, optimizer = best_optim.from_config(best_optim_config), metrics=['categorical_accuracy'])
     return model
 
 
@@ -109,10 +111,10 @@ if __name__ == "__main__":
         model, history_callback = train_func(model, weight_file)
 
         model.save_weights(last_weight_file, overwrite=True)
-        system('touch '+join(outdir,model_arch+'.traindone'))
+        system('touch '+join(outdir, model_arch+'.traindone'))
         myhist = history_callback.history
-        all_hist = np.asarray([myhist["loss"],myhist["acc"],myhist["val_loss"],myhist["val_acc"]]).transpose()
-        np.savetxt(join(outdir,model_arch+".training_history.txt"), all_hist,delimiter = "\t",header='loss\tacc\tval_loss\tval_acc')
+        all_hist = np.asarray([myhist["loss"], myhist["categorical_accuracy"], myhist["val_loss"], myhist["val_categorical_accuracy"]]).transpose()
+        np.savetxt(join(outdir, model_arch+".training_history.txt"), all_hist,delimiter = "\t", header='loss\tacc\tval_loss\tval_acc')
 
     if args.retrain:
         ### Resume training
@@ -123,28 +125,33 @@ if __name__ == "__main__":
         model, history_callback = train_func(model, new_weight_file)
 
         model.save_weights(new_last_weight_file, overwrite=True)
-        system('touch '+join(outdir,model_arch+'.traindone'))
+        system('touch '+join(outdir, model_arch+'.traindone'))
         myhist = history_callback.history
-        all_hist = np.asarray([myhist["loss"],myhist["acc"],myhist["val_loss"],myhist["val_acc"]]).transpose()
-        np.savetxt(join(outdir,model_arch+".training_history."+ args.retrain + ".txt"), all_hist,delimiter = "\t",header='loss\tacc\tval_loss\tval_acc')
+        all_hist = np.asarray([myhist["loss"], myhist["categorical_accuracy"], myhist["val_loss"], myhist["val_categorical_accuracy"]]).transpose()
+        np.savetxt(join(outdir, model_arch+".training_history."+ args.retrain + ".txt"), all_hist, delimiter = "\t", header='loss\tacc\tval_loss\tval_acc')
 
     if args.eval:
         ## Evaluate
         model = load_model(weight_file)
 
-        pred = []
+        pred_for_evalidx = []
+        pred_bin = []
+        y_true_for_evalidx = []
         y_true = []
         testbatch_num, _ = hb.probedata(join(args.topdir, 'test.h5.batch'))
         test_generator = hb.BatchGenerator(None, join(args.topdir, 'test.h5.batch'))
         for _ in range(testbatch_num):
             X_test, Y_test = test_generator.next()
-            pred += [x[0] for x in model.predict(X_test)]
-            y_true += [x[0] for x in Y_test]
+            t_pred = model.predict(X_test)
+            pred_for_evalidx += [x[args.evalidx] for x in t_pred]
+            pred_bin += [np.argmax(x) for x in t_pred]
+            y_true = [np.argmax(x) for x in Y_test]
+            y_true_for_evalidx += [x[args.evalidx] for x in Y_test]
 
-        t_auc = roc_auc_score(y_true, pred)
-        t_acc = accuracy_score(y_true, [ 1 if x>0.5 else 0 for x in pred])
-        print('Test AUC:', t_auc)
-        print('Test accuracy:', t_acc)
+        t_auc = roc_auc_score(y_true_for_evalidx, pred_for_evalidx)
+        t_acc = accuracy_score(y_true, pred_bin)
+        print('Test AUC for output neuron {}:'.format(args.evalidx), t_auc)
+        print('Test categorical accuracy:', t_acc)
         np.savetxt(evalout, [t_auc, t_acc])
 
     if args.infile != '':
