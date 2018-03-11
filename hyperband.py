@@ -135,11 +135,15 @@ class Hyperband:
             allfiles = subprocess.check_output('ls '+fileprefix+'*', shell=True).split('\n')[:-1]
             cache = []
             while True:
-                for i in range(len(allfiles)):
+                idx2use = np.random.permutation(range(len(allfiles)))
+                for i in idx2use:
                     data1f = h5py.File(fileprefix+str(i+1),'r')
-                    data1 = data1f['data']
-                    label = data1f['label']
+                    data1 = data1f['data'][()]
+                    label = data1f['label'][()]
                     datalen = len(data1)
+                    reorder = np.random.permutation(range(datalen))
+                    data1 = data1[reorder]
+                    label = label[reorder]
                     minibatch_size = mb_size or datalen
                     idx = 0
                     if len(cache)!= 0:

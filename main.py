@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument("-rw", "--rweightfile", default='', help="Weight file to load for retraining")
     parser.add_argument("-dm", "--datamode", default='memory', help="whether to load data into memory ('memory') or using a generator('generator')")
     parser.add_argument("-ei", "--evalidx", dest='evalidx', default=0, type=int, help="which output neuron (0-based) to calculate 2-class auROC for")
-    parser.add_argument("--epochratio", default=1, type=int, help="when training with data generator, optionally shrink each epoch size by this factor to enable more frequen evaluation on the valid set")
+    parser.add_argument("--epochratio", default=1, type=float, help="when training with data generator, optionally shrink each epoch size by this factor to enable more frequen evaluation on the valid set")
 
     return parser.parse_args()
 
@@ -46,7 +46,7 @@ def train_func(model, weightfile2save):
         validbatch_num, valid_size = hb.probedata(join(args.topdir, 'valid.h5.batch'))
         history_callback = model.fit_generator(
                 hb.BatchGenerator(args.batchsize, join(args.topdir, 'train.h5.batch')),
-                train_size/args.batchsize/args.epochratio,
+                train_size / args.batchsize * args.epochratio,
                 args.trainepoch,
                 validation_data=hb.BatchGenerator(args.batchsize, join(args.topdir, 'valid.h5.batch')),
                 validation_steps=np.ceil(float(valid_size)/args.batchsize),
