@@ -16,6 +16,9 @@ The latest version has gone through major refactorization that changes the inter
 
 
 ## Data preparation
+
+**Note that the following procedure encodes each sequence into an array of shape (bs, 4, 1, len) where `bs` is the number of samples and `len` is the length of each DNA sequence. Therefore, to work with datasets generated from this procedure, you will need to set "image_data_format" in `~/.keras/keras.json` file as "channels_first"**.
+
 User needs to prepare [sequence file](https://github.com/gifford-lab/Keras-genomics/blob/master/example/train.fa) in [FASTA](https://en.wikipedia.org/wiki/FASTA_format) format and [target file](https://github.com/gifford-lab/Keras-genomics/blob/master/example/train.target) for training,validation and test set. Refer to the [toy data](https://github.com/gifford-lab/Keras-genomics/blob/master/example/) we provided for more examples.
 
 Then run the following to embed each set into HDF5 format.

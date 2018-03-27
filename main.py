@@ -145,7 +145,7 @@ if __name__ == "__main__":
             t_pred = model.predict(X_test)
             pred_for_evalidx += [x[args.evalidx] for x in t_pred]
             pred_bin += [np.argmax(x) for x in t_pred]
-            y_true = [np.argmax(x) for x in Y_test]
+            y_true += [np.argmax(x) for x in Y_test]
             y_true_for_evalidx += [x[args.evalidx] for x in Y_test]
 
         t_auc = roc_auc_score(y_true_for_evalidx, pred_for_evalidx)
