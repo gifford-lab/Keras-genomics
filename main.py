@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument("-dm", "--datamode", default='memory', help="whether to load data into memory ('memory') or using a generator('generator')")
     parser.add_argument("-ei", "--evalidx", dest='evalidx', default=0, type=int, help="which output neuron (0-based) to calculate 2-class auROC for")
     parser.add_argument("--epochratio", default=1, type=float, help="when training with data generator, optionally shrink each epoch size by this factor to enable more frequen evaluation on the valid set")
+    parser.add_argument("-shuf", default=1, type=int, help="whether to shuffle the data at the begining of each epoch (1/0)")
 
     return parser.parse_args()
 
@@ -45,10 +46,10 @@ def train_func(model, weightfile2save):
         trainbatch_num, train_size = hb.probedata(join(args.topdir, 'train.h5.batch'))
         validbatch_num, valid_size = hb.probedata(join(args.topdir, 'valid.h5.batch'))
         history_callback = model.fit_generator(
-                hb.BatchGenerator(args.batchsize, join(args.topdir, 'train.h5.batch')),
+                hb.BatchGenerator(args.batchsize, join(args.topdir, 'train.h5.batch'), shuf=args.shuf==1),
                 train_size / args.batchsize * args.epochratio,
                 args.trainepoch,
-                validation_data=hb.BatchGenerator(args.batchsize, join(args.topdir, 'valid.h5.batch')),
+                validation_data=hb.BatchGenerator(args.batchsize, join(args.topdir, 'valid.h5.batch'), shuf=args.shuf==1),
                 validation_steps=np.ceil(float(valid_size)/args.batchsize),
                 callbacks = [checkpointer, early_stopping])
     else:
@@ -60,7 +61,8 @@ def train_func(model, weightfile2save):
                 batch_size=args.batchsize,
                 epochs=args.trainepoch,
                 validation_data=(validdata, Y_valid),
-                callbacks = [checkpointer, early_stopping])
+                callbacks = [checkpointer, early_stopping],
+                shuffle=args.shuf==1)
     return model, history_callback
 
 def load_model(weightfile2load=None):
@@ -139,7 +141,7 @@ if __name__ == "__main__":
         y_true_for_evalidx = []
         y_true = []
         testbatch_num, _ = hb.probedata(join(args.topdir, 'test.h5.batch'))
-        test_generator = hb.BatchGenerator(None, join(args.topdir, 'test.h5.batch'))
+        test_generator = hb.BatchGenerator(None, join(args.topdir, 'test.h5.batch'), shuf=args.shuf==1)
         for _ in range(testbatch_num):
             X_test, Y_test = test_generator.next()
             t_pred = model.predict(X_test)
